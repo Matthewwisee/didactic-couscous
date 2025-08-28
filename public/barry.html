@@ -9,4 +9,16 @@
     <h1> barry page</h1>
     <a href="\"> home</a>
 </body>
+
+<script>
+    fetch('/api/barry')
+      .then(response => response.json())
+      .then(data => {
+        document.body.innerHTML += `<p>API says: ${data.myVar}</p>`;
+      })
+      .catch(err => {
+        document.body.innerHTML += `<p>Error fetching API</p>`;
+      });
+  </script>
+  
 </html>

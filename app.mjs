@@ -1,82 +1,126 @@
-// app.mjs (or app.js with "type": "module")
 import 'dotenv/config'
-import express from 'express';
+import { connectDB, getDB } from './db/mongo.mjs'
+import express from 'express'
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { MongoClient, ServerApiVersion } from 'mongodb';
+import { ObjectId } from 'mongodb';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 const app = express()
 const PORT = process.env.PORT || 3000;
-const uri = process.env.MONGO_URI;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 app.use(express.static(join(__dirname, 'public')));
+app.use('/scripts', express.static(join(__dirname, 'scripts')));
 app.use(express.json());
 
+// Call function from db/mongo.mjs
+connectDB()
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
-const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
+// ROUTES
+app.get('/', (req, res) => {
+  res.redirect('/guitars');
+});
+
+app.get('/guitars', (req, res) => {
+  res.sendFile(join(__dirname, 'public', 'guitars.html'));
+});
+
+// CREATE - Add a new guitar
+app.post('/api/guitars', async (req, res) => {
+  try {
+    const db = getDB();
+    const { name, price, color } = req.body;
+
+    // Simple validation
+    if (!name || !price || !color) {
+      return res.status(400).json({ error: 'Name, price, and color are required' });
+    }
+
+    const guitar = { name, price: parseInt(price), color };
+    const result = await db.collection('guitars').insertOne(guitar);
+
+    res.status(201).json({
+      message: 'Guitar created successfully',
+      guitarId: result.insertedId,
+      guitar: { ...guitar, _id: result.insertedId }
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to create guitar: ' + error.message });
   }
 });
 
-async function run() {
+// READ - Get all guitars
+app.get('/api/guitars', async (req, res) => {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
-    // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
-  } finally {
-    // Ensures that the client will close when you finish/error
-    await client.close();
+    const db = getDB();
+    const guitars = await db.collection('guitars').find({}).toArray();
+    res.json(guitars); // Return just the array for frontend simplicity
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch guitars: ' + error.message });
   }
-}
-run().catch(console.dir);
+});
 
+// UPDATE - Update a guitar by ID
+app.put('/api/guitars/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, price, color } = req.body;
 
-app.get('/', (req, res) => {
-  res.send('Hello World from Render <a href="/barry">barry</a>')
-})
+    // Validate ObjectId
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid guitar ID' });
+    }
 
-// endpoints ... middlewares ... apis?
-// send an html file
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (price) updateData.price = parseInt(price);
+    if (color) updateData.color = color;
 
-app.get('/barry', (req, res) => {
-  res.sendFile(join(__dirname, 'public', 'barry.html')) 
-})
+    const db = getDB();
+    const result = await db.collection('guitars').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData }
+    );
 
-app.get('/api/barry', (req, res) => {
-  // res.send('barry. <a href="/">home</a>')
-  const myVar = 'Hello from server!';
-  res.json({ myVar });
-})
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: 'Guitar not found' });
+    }
 
-//app.listen(3000)
+    res.json({
+      message: 'Guitar updated successfully',
+      modifiedCount: result.modifiedCount
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update guitar: ' + error.message });
+  }
+});
 
-app.get('/api/query', (req, res) => {
+// DELETE - Delete a guitar by ID
+app.delete('/api/guitars/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
 
-  //console.log('Client request with query param:', req.query.name);
-  const name = req.query.name;
-  res.json({
-    "message": name
-  })
-})
+    // Validate ObjectId
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid guitar ID' });
+    }
 
-app.get('/api/url/:id', (req, res) => {
-  console.log('Client request with url param:', req.params.id);
-})
+    const db = getDB();
+    const result = await db.collection('guitars').deleteOne({ _id: new ObjectId(id) });
 
-app.post('/api/body', (req, res) => {
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'Guitar not found' });
+    }
 
-  console.log('Client request with POST name:', req.body.name);
-  console.log('Client request with POST zip:', req.body.zip);
-
-})
+    res.json({
+      message: 'Guitar deleted successfully',
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete guitar: ' + error.message });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Example app listening on port ${PORT}`)
